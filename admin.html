@@ -97,6 +97,15 @@
         <button id="clearClock">Clear clock</button>
       </div>
       <div class="muted" style="margin-top:8px;">Time left: <code id="clockLeft">—</code></div>
+      <div class="muted" style="margin-top:12px;">Quickfire</div>
+<div class="row" style="margin-top:10px;">
+  <button id="startQuickfire" class="btnPrimary">Start Quickfire</button>
+  <button id="qfRight">Right (+5 lives)</button>
+  <button id="qfWrong">Wrong</button>
+  <button id="qfPass">Pass</button>
+  <button id="endQuickfire">End Quickfire</button>
+</div>
+<div class="muted" style="margin-top:8px;">Quickfire: <code id="qfLabel">—</code></div>
       <div class="muted" style="margin-top:12px;">Reveal / Evaluate</div>
       <div class="row" style="margin-top:10px;">
         <button id="startEval" class="btnPrimary">Start rung reveal</button>
@@ -152,6 +161,7 @@ import {
       ladderIndex: 0,
       pendingIndex: null,
       ladder: buildOfficialLadder(500),
+quickfire: { active: false, score: 0, total: 0, qIndex: 0 },
     };
 
     let playerRow = null;
@@ -228,10 +238,48 @@ async function adminAutoLockIfNeeded(){
   }
 
   if (_adminAutoLocked) return;
-  if ((lastState?.phase || "") !== "question") return;
+  const ph = (lastState?.phase || "");
+if (ph !== "question" && ph !== "quickfire") return;
 
   if (Date.now() < dl) return;
+  
+  // Quickfire: when time expires, immediately move to next question (no locking)
+// Quickfire: when time expires, END the round (single continuous 60s)
+if ((lastState?.phase || "") === "quickfire") {
+  _adminAutoLocked = true;
 
+  const cur = (await fetchState(gameId)).state || {};
+  const qf = cur.quickfire || { active:true, score:0, total:0, qIndex:0 };
+
+  await patchState(gameId, {
+    lock_deadline_at: null,
+    phase: "question",
+    qSet: "main",
+    questionId: null,
+    question: "",
+    guess: null,
+    lockedGuess: null,
+    eval: null,
+    pendingIndex: null,
+    result: null,
+    answer: null,
+    answerShown: false,
+    quickfire: { ...qf, active: false },
+  });
+
+  clearPrivateAnswer();
+  clearQuestionInfo();
+  const qText = document.getElementById("qText");
+  const guessEl = document.getElementById("guess");
+  const qIdEl = document.getElementById("questionIdLabel");
+  if (qText) qText.value = "";
+  if (guessEl) guessEl.value = "";
+  if (qIdEl) qIdEl.textContent = "—";
+
+  return;
+}
+
+  
   // Fallback: lock whatever is currently dialled in (from player_input.current_guess)
   if (!playerRow?.locked) {
     const d = dialValue();
@@ -425,6 +473,93 @@ document.getElementById("clearClock")?.addEventListener("click", async () => {
   await patchState(gameId, { lock_deadline_at: null });
 });
 
+function setQuickfireButtons(s){
+  const active = (s.phase === "quickfire") || !!(s.quickfire && s.quickfire.active);
+  const $ = (id) => document.getElementById(id);
+
+  if ($("startQuickfire")) $("startQuickfire").disabled = active;
+  if ($("endQuickfire")) $("endQuickfire").disabled = !active;
+  if ($("qfRight")) $("qfRight").disabled = !active;
+  if ($("qfWrong")) $("qfWrong").disabled = !active;
+  if ($("qfPass")) $("qfPass").disabled = !active;
+}
+
+document.getElementById("startQuickfire")?.addEventListener("click", async () => {
+  // reset counters and begin
+  await patchState(gameId, {
+    quickfire: { active: true, score: 0, total: 0, qIndex: 0 },
+    qSet: "quickfire",
+    eval: null,
+    pendingIndex: null,
+    result: null,
+    answer: null,
+    answerShown: false,
+    guess: null,
+    lockedGuess: null,
+    lock_deadline_at: null,
+  });
+
+  // No dial/locking in this mode, but reset player input anyway for cleanliness
+  await sb.from("player_input").upsert(
+    { game_id: gameId, current_guess: 0, locked: false, locked_guess: null },
+    { onConflict: "game_id" }
+  );
+
+  await loadQuickfireQuestion(0);
+  await start60sClock();
+});
+
+async function quickfireMark(kind){
+  const cur = (await fetchState(gameId)).state || {};
+  if (cur.phase !== "quickfire") return alert("Not in quickfire mode.");
+
+  const qf = cur.quickfire || { active:true, score:0, total:0, qIndex:0 };
+  const nextTotal = (Number(qf.total) || 0) + 1;
+  const nextScore = (Number(qf.score) || 0) + (kind === "right" ? 1 : 0);
+  const nextIndex = (Number(qf.qIndex) || 0) + 1;
+
+  let lives = Number.isFinite(cur.lives) ? Number(cur.lives) : 0;
+  if (kind === "right") lives += 5;
+
+  await patchState(gameId, {
+  lives,
+  quickfire: { ...qf, active: true, total: nextTotal, score: nextScore, qIndex: nextIndex },
+});
+
+await loadQuickfireQuestion(nextIndex);
+}
+
+document.getElementById("qfRight")?.addEventListener("click", () => quickfireMark("right"));
+document.getElementById("qfWrong")?.addEventListener("click", () => quickfireMark("wrong"));
+document.getElementById("qfPass")?.addEventListener("click", () => quickfireMark("pass"));
+
+document.getElementById("endQuickfire")?.addEventListener("click", async () => {
+  const cur = (await fetchState(gameId)).state || {};
+  const qf = cur.quickfire || { active:false, score:0, total:0, qIndex:0 };
+
+  await patchState(gameId, {
+    phase: "question",
+    qSet: "main",
+    questionId: null,
+    question: "",
+    guess: null,
+    lockedGuess: null,
+    eval: null,
+    pendingIndex: null,
+    result: null,
+    answer: null,
+    answerShown: false,
+    lock_deadline_at: null,
+    quickfire: { ...qf, active: false },
+  });
+
+  clearPrivateAnswer();
+  clearQuestionInfo();
+  document.getElementById("qText").value = "";
+  document.getElementById("guess").value = "";
+  document.getElementById("questionIdLabel").textContent = "—";
+});
+
     // extras buttons
     document.getElementById("usePlayerDial")?.addEventListener("click", () => {
       const d = dialValue();
@@ -508,6 +643,62 @@ try{
     }
 
     document.getElementById("loadDbQuestion").onclick = loadQuestionFromDb;
+
+    async function start60sClock(){
+  const deadline = new Date(Date.now() + 60_000).toISOString();
+  await patchState(gameId, { lock_deadline_at: deadline });
+}
+
+async function loadQuickfireQuestion(nextQIndex = null){
+  const cur = (await fetchState(gameId)).state || {};
+  const qf = cur.quickfire || { active:false, score:0, total:0, qIndex:0 };
+  const qIndex = (nextQIndex === null ? (Number(qf.qIndex) || 0) : Number(nextQIndex) || 0);
+
+  let q = null;
+  try {
+    q = await pickQuestion(gameId, "quickfire", qIndex);
+  } catch (e) {
+    console.error(e);
+    alert("DB pick failed for quickfire.");
+    return null;
+  }
+
+  if (!q || !q.id) {
+    alert("No available quickfire questions. Add more or reset history.");
+    return null;
+  }
+
+  await patchState(gameId, {
+    phase: "quickfire",
+    qSet: "quickfire",
+    questionId: q.id,
+    question: q.prompt,
+    result: null,
+    answer: null,
+    answerShown: false,
+    guess: null,
+    lockedGuess: null,
+    eval: null,
+    pendingIndex: null,
+    quickfire: { ...qf, active: true, qIndex }
+  });
+
+  clearPrivateAnswer();
+
+  // reflect immediately in UI
+  document.getElementById("qText").value = q.prompt;
+  questionIdLabel.textContent = q.id;
+
+  // host-only info (notes etc)
+  try{
+    const full = await fetchQuestionById(q.id);
+    renderQuestionInfo(full);
+  }catch(e){
+    clearQuestionInfo();
+  }
+
+  return q;
+}
 
     document.getElementById("clearQuestion").onclick = async () => {
       questionIdLabel.textContent = "—";
@@ -860,6 +1051,13 @@ answerShown: true,
       // keep inputs roughly in sync
       if ((s.question||"") && !document.getElementById("qText").value) document.getElementById("qText").value = s.question;
       if (Number.isFinite(s.guess) && !document.getElementById("guess").value) document.getElementById("guess").value = String(s.guess);
+      const qf = s.quickfire || null;
+const qfEl = document.getElementById("qfLabel");
+if (qfEl) {
+  if (qf && qf.active) qfEl.textContent = `active · ${qf.score || 0}/${qf.total || 0} correct`;
+  else qfEl.textContent = "—";
+}
+setQuickfireButtons(s);
       lastState = s || {};
       updateExtras();
       startAdminClockTicker();
