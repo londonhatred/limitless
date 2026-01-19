@@ -97,6 +97,7 @@
         <button id="clearClock">Clear clock</button>
       </div>
       <div class="muted" style="margin-top:8px;">Time left: <code id="clockLeft">—</code></div>
+      <div class="muted" style="margin-top:6px;">Admin answer: <code id="adminAnswer">—</code></div>
       <div class="muted" style="margin-top:12px;">Quickfire</div>
 <div class="row" style="margin-top:10px;">
   <button id="startQuickfire" class="btnPrimary">Start Quickfire</button>
@@ -155,7 +156,7 @@ import {
       answer: null,
       answerShown: false,
       result: null,            // "exact" | "under" | "over" | "wrong" | "no_lives" | null
-      lives: 25,
+      lives: 0,
       bank: 0,
       eval: null,              // { mode, baseIndex, targetSteps, climbedSteps, diffTotal, diffShown }
       ladderIndex: 0,
@@ -178,6 +179,8 @@ function getPrivateAnswer(){
   if (Number.isFinite(privateAnswer)) return privateAnswer;
   try {
     const raw = localStorage.getItem(answerStorageKey());
+    // IMPORTANT: localStorage.getItem can be null; Number(null) === 0 (wrong). Treat null/"" as no answer.
+    if (raw === null || raw === "") return NaN;
     const v = Number(raw);
     if (Number.isFinite(v)) { privateAnswer = v; return v; }
   } catch(e) {}
@@ -267,8 +270,9 @@ if ((lastState?.phase || "") === "quickfire") {
     quickfire: { ...qf, active: false },
   });
 
-  clearPrivateAnswer();
+ 
   clearQuestionInfo();
+  clearPrivateAnswer();
   const qText = document.getElementById("qText");
   const guessEl = document.getElementById("guess");
   const qIdEl = document.getElementById("questionIdLabel");
@@ -553,8 +557,8 @@ document.getElementById("endQuickfire")?.addEventListener("click", async () => {
     quickfire: { ...qf, active: false },
   });
 
-  clearPrivateAnswer();
   clearQuestionInfo();
+  clearPrivateAnswer();
   document.getElementById("qText").value = "";
   document.getElementById("guess").value = "";
   document.getElementById("questionIdLabel").textContent = "—";
@@ -614,6 +618,8 @@ document.getElementById("endQuickfire")?.addEventListener("click", async () => {
         return;
       }
 
+      // Clear private answer BEFORE patchState to prevent old answer flash
+      clearPrivateAnswer();
       // IMPORTANT: do NOT write the answer into game_state yet (prevents screen seeing it before reveal)
       await patchState(gameId, {
         phase: "question",
@@ -626,7 +632,6 @@ document.getElementById("endQuickfire")?.addEventListener("click", async () => {
         lockedGuess: null,
         lock_deadline_at: null,
       });
-      clearPrivateAnswer();
 
       // reflect immediately in UI
       document.getElementById("qText").value = q.prompt;
@@ -668,6 +673,8 @@ async function loadQuickfireQuestion(nextQIndex = null){
     return null;
   }
 
+  // Clear private answer BEFORE patchState to prevent old answer flash
+  clearPrivateAnswer();
   await patchState(gameId, {
     phase: "quickfire",
     qSet: "quickfire",
@@ -683,21 +690,29 @@ async function loadQuickfireQuestion(nextQIndex = null){
     quickfire: { ...qf, active: true, qIndex }
   });
 
-  clearPrivateAnswer();
-
   // reflect immediately in UI
   document.getElementById("qText").value = q.prompt;
   questionIdLabel.textContent = q.id;
 
-  // host-only info (notes etc)
-  try{
-    const full = await fetchQuestionById(q.id);
-    renderQuestionInfo(full);
-  }catch(e){
-    clearQuestionInfo();
-  }
+  // host-only info (notes etc) + cache answer privately (NEVER write to game_state)
+try{
+  const full = await fetchQuestionById(q.id);
+  renderQuestionInfo(full);
 
-  return q;
+  const rawAns = full?.answer;
+  const v = Number(rawAns);
+  if (rawAns !== null && rawAns !== undefined && rawAns !== "" && Number.isFinite(v)) {
+    setPrivateAnswer(v);
+  } else {
+    // prevents stale previous answer showing
+    clearPrivateAnswer();
+  }
+}catch(e){
+  clearQuestionInfo();
+  clearPrivateAnswer();
+}
+
+return q;
 }
 
     document.getElementById("clearQuestion").onclick = async () => {
@@ -1040,6 +1055,12 @@ answerShown: true,
       const hidden = getPrivateAnswer();
       const hiddenLabel = Number.isFinite(hidden) ? ` | hiddenAns:${hidden}` : " | hiddenAns:—";
       if (el) el.textContent = evLabel + hiddenLabel;
+
+      const aa = document.getElementById("adminAnswer");
+if (aa) {
+  const v = getPrivateAnswer();
+  aa.textContent = Number.isFinite(v) ? String(v) : "—";
+}
 
       // Button safety: only allow the appropriate step button for the current eval mode.
       const btnNextRung = document.getElementById("nextRung");
