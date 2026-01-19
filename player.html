@@ -1,0 +1,232 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Player Dial</title>
+  <style>
+    :root{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;--bg0:#07060b;--bg1:#0b0f14;--t:#e7eef7;--m:rgba(231,238,247,.72);--s:rgba(231,238,247,.14);--a:#ff00ff;}
+    body{margin:0;min-height:100vh;color:var(--t);background:linear-gradient(180deg,var(--bg0),var(--bg1));display:flex;align-items:center;justify-content:center;padding:14px;}
+    .card{width:min(560px,94vw);border:1px solid var(--s);border-radius:16px;background:rgba(231,238,247,.06);padding:14px}
+    .q{font-size:18px;opacity:.95;line-height:1.25}
+    .big{font-size:64px;font-weight:900;letter-spacing:-.02em;margin:12px 0}
+    .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+    button,input{border-radius:14px;border:1px solid rgba(231,238,247,.18);background:rgba(231,238,247,.08);color:var(--t);padding:12px 14px;font-size:16px}
+    button{cursor:pointer}
+    .primary{border-color:rgba(255,0,255,.55);background:rgba(255,0,255,.18)}
+    .muted{color:var(--m)}
+    .spacer{height:8px}
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+  <div class="card">
+    <div class="muted">Player · Game <span id="gameId"></span> · <span id="status">Connecting…</span></div>
+    <div class="spacer"></div>
+
+    <div class="q" id="question">Waiting for question…</div>
+
+    <div class="big" id="dial">0</div>
+
+    <div class="row">
+      <button data-step="-10">-10</button>
+      <button data-step="-1">-1</button>
+      <button data-step="1">+1</button>
+      <button data-step="10">+10</button>
+      <input id="manual" inputmode="numeric" placeholder="Type number" style="flex:1;min-width:160px" />
+    </div>
+
+    <div class="spacer"></div>
+
+    <div class="row" style="justify-content:space-between">
+      <div class="muted">Deadline: <span id="deadline">—</span></div>
+      <button id="lock" class="primary">LOCK IN</button>
+    </div>
+
+    <div class="spacer"></div>
+    <div class="muted" id="hint"></div>
+  </div>
+
+  <script type="module">
+    import {
+      sb, getGameId,
+      ensureRow, ensurePlayerInputRow,
+      fetchState, patchState, subscribeState,
+      fetchPlayerInput, subscribePlayerInput
+    } from "./shared.js";
+    
+    const gameId = getGameId();
+    document.getElementById("gameId").textContent = gameId;
+    
+    let s = {};          // game_state.state
+    let playerRow = null;
+    let dial = 0;
+    let autoLockArmed = false;
+    let inputLocked = false;
+    
+    const $dial = document.getElementById("dial");
+    const $q = document.getElementById("question");
+    const $deadline = document.getElementById("deadline");
+    const $status = document.getElementById("status");
+    const $hint = document.getElementById("hint");
+
+    // Tick the deadline display even between polling updates
+    setInterval(() => {
+      // render only updates DOM; safe to call frequently
+      try { render(); } catch(e) {}
+    }, 200);
+    
+    function clamp(n){ n = Math.floor(n); return Math.max(0, Math.min(9999, n)); }
+
+    let _syncT = null;
+    let _dialHydrating = true; // prevents accidental writes during initial load
+
+    function scheduleSync(){
+      if (inputLocked) return;
+      if (_dialHydrating) return;
+      clearTimeout(_syncT);
+      _syncT = setTimeout(() => {
+        upsertAnswer({ locked: false }).catch(console.warn);
+      }, 140);
+    }
+
+    function setDial(n, { silent = false } = {}){
+      dial = clamp(n);
+      $dial.textContent = String(dial);
+      if (!silent) scheduleSync();
+    }
+    
+    async function upsertAnswer({ locked = false } = {}) {
+      const payload = {
+        game_id: gameId,
+        current_guess: dial,
+        locked_guess: locked ? dial : null,
+        locked
+      };
+      await sb.from("player_input").upsert(payload, { onConflict: "game_id" });
+    }
+    
+    function render(){
+      $q.textContent = s.question || "Waiting for question…";
+    
+      const dl = s.lock_deadline_at ? new Date(s.lock_deadline_at).getTime() : NaN;
+      if (!Number.isFinite(dl)) {
+        $deadline.textContent = "—";
+      } else {
+        const left = dl - Date.now();
+        const secs = Math.max(0, Math.ceil(left / 1000));
+        const mm = String(Math.floor(secs / 60)).padStart(2, "0");
+        const ss = String(secs % 60).padStart(2, "0");
+        $deadline.textContent = `${mm}:${ss}`;
+      }
+    
+      const phase = s.phase || "—";
+    
+      const canLock = (phase === "question") && !inputLocked;
+      document.getElementById("lock").disabled = !canLock;
+    
+      const canDial = (phase === "question") && !inputLocked;
+      document.querySelectorAll("button[data-step]").forEach(b => b.disabled = !canDial);
+      const manualEl = document.getElementById("manual");
+      if (manualEl) manualEl.disabled = !canDial;
+    
+      $hint.textContent =
+        inputLocked ? "Locked in." :
+        phase === "question" ? "Dial your number. Lock when ready." :
+        `Phase: ${phase}`;
+    }
+    
+    function maybeAutoLock(){
+      if (!s.lock_deadline_at) return;
+      if (autoLockArmed) return;
+    
+      const t = Date.now();
+      const deadline = new Date(s.lock_deadline_at).getTime();
+      if (Number.isFinite(deadline) && deadline > t) {
+        autoLockArmed = true;
+        const ms = deadline - t;
+        setTimeout(async () => {
+          if (inputLocked) return;
+          const phase = s.phase || "";
+          if (phase !== "question") return;
+    
+          await upsertAnswer({ locked: true });
+          inputLocked = true;
+    
+          // CRUCIAL: also write into game_state so admin rung-reveal works even if player_input isn't live
+          await patchState(gameId, { phase: "locked", guess: dial, lockedGuess: dial });
+    
+          render();
+        }, ms);
+      }
+    }
+    
+    // UI
+    document.querySelectorAll("button[data-step]").forEach(btn => {
+      btn.addEventListener("click", () => setDial(dial + Number(btn.dataset.step)));
+    });
+    
+    document.getElementById("manual").addEventListener("input", (e) => {
+      const raw = (e.target.value || "").toString().trim();
+      if (!raw) return;
+      const v = Number(raw);
+      if (Number.isFinite(v)) setDial(v);
+    });
+    
+    document.getElementById("lock").addEventListener("click", async () => {
+      await upsertAnswer({ locked: true });
+      inputLocked = true;
+      await patchState(gameId, { phase: "locked", guess: dial, lockedGuess: dial });
+      render();
+    });
+    
+    // Start
+    try{
+      if (!sb) throw new Error("Supabase client not available. Is supabase-js loaded?");
+      $status.textContent = "Live";
+    
+      await ensureRow(gameId);
+      await ensurePlayerInputRow(gameId);
+    
+      // initial loads
+      {
+        const row = await fetchPlayerInput(gameId);
+        playerRow = row;
+        inputLocked = !!row?.locked;
+        if (!inputLocked && Number.isFinite(row?.current_guess)) setDial(row.current_guess, { silent: true });
+        if (inputLocked && Number.isFinite(row?.locked_guess)) setDial(row.locked_guess, { silent: true });
+      }
+    
+      {
+        const data = await fetchState(gameId);
+        s = data?.state || {};
+      }
+
+      _dialHydrating = false;
+      render();
+      maybeAutoLock();
+    
+      // subscriptions (polling)
+      subscribeState(gameId, (next) => {
+        s = next || {};
+        autoLockArmed = false;
+        render();
+        maybeAutoLock();
+      });
+    
+      subscribePlayerInput(gameId, (row) => {
+        playerRow = row;
+        inputLocked = !!row?.locked;
+        if (!inputLocked && Number.isFinite(row?.current_guess)) setDial(row.current_guess, { silent: true });
+        if (inputLocked && Number.isFinite(row?.locked_guess)) setDial(row.locked_guess, { silent: true });
+        render();
+      });
+    
+    }catch(err){
+      console.error(err);
+      $status.textContent = "Error";
+      $hint.textContent = "Couldn’t connect. Check Supabase keys / RLS / network.";
+    }
+    </script>
+</body>
+</html>

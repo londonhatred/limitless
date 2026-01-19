@@ -1,0 +1,885 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Limitless-ish Admin</title>
+  <style>
+    :root{ font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      --bg0:#07060b; --bg1:#0b0f14; --text:#e7eef7; --muted:rgba(231,238,247,.72);
+      --stroke:rgba(231,238,247,.14); --accent:#ff00ff; --accentSoft:rgba(255,0,255,.18); --accentStroke:rgba(255,0,255,.65);
+    }
+    body{ margin:0; color:var(--text); background:linear-gradient(180deg,var(--bg0),var(--bg1)); padding:16px; }
+    .card{ border:1px solid var(--stroke); border-radius:16px; padding:14px; background:rgba(231,238,247,.06); max-width:980px; margin:0 auto 12px; }
+    .row{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+    input, textarea, select{
+      width:100%; box-sizing:border-box;
+      padding:10px 12px; border-radius:12px;
+      border:1px solid rgba(231,238,247,.18); background:rgba(231,238,247,.08); color:var(--text); outline:none;
+    }
+    textarea{ min-height:72px; resize:vertical; }
+    button{
+      border-radius:12px; padding:10px 12px; cursor:pointer;
+      border:1px solid rgba(231,238,247,.18);
+      background:linear-gradient(180deg, rgba(231,238,247,.10), rgba(231,238,247,.06));
+      color:var(--text);
+    }
+    .btnPrimary{ border-color: var(--accentStroke); background:linear-gradient(180deg, rgba(255,0,255,.30), rgba(255,0,255,.16)); }
+    .muted{ opacity:.75; }
+    .grid2{ display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
+    @media (max-width: 860px){ .grid2{ grid-template-columns:1fr; } }
+    code{ font-variant-numeric: tabular-nums; }
+    .ladder{ margin-top:10px; display:grid; gap:6px; }
+.step{ display:flex; justify-content:space-between; align-items:center; padding:8px 10px;
+  border:1px solid var(--stroke); border-radius:12px; background:rgba(231,238,247,.04); }
+.step .left{ display:flex; gap:8px; align-items:baseline; }
+.badge{ font-size:12px; opacity:.75; }
+.step.current{ border-color: rgba(255,0,255,.55); }
+.step.preview{ background: rgba(255,0,255,.10); }
+.step.both{ border-color: rgba(255,0,255,.75); background: rgba(255,0,255,.14); }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+  <div class="card">
+    <div class="row" style="justify-content:space-between;">
+      <div>
+        <div style="font-weight:900; letter-spacing:.08em; text-transform:uppercase;">Admin</div>
+        <div class="muted">Game: <code id="gameIdLabel"></code></div>
+      </div>
+      <div class="row">
+        <button id="copyScreenUrl">Copy screen URL</button>
+        <button id="resetGame" class="btnPrimary">Reset</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card grid2">
+    <div>
+      <div class="muted" style="margin-bottom:6px;">Question</div>
+
+      <div class="row" style="margin-bottom:10px;">
+        <select id="qSetSel" style="max-width:180px;">
+          <option value="main" selected>Main</option>
+          <option value="quickfire">Quickfire</option>
+        </select>
+        <button id="loadDbQuestion">Load from DB</button>
+        <button id="clearQuestion">Clear</button>
+      </div>
+
+      <textarea id="qText" placeholder="Type the question…"></textarea>
+      <div class="row" style="margin-top:10px;">
+        <button id="setQuestion" class="btnPrimary">Set question</button>
+        <button id="nextQuestion">Next Q</button>
+      </div>
+      <div class="muted" style="margin-top:10px;">DB ID: <code id="questionIdLabel">—</code></div>
+      <div class="muted" style="margin-top:12px;">Question info (host only)</div>
+<div id="qInfoBox" style="margin-top:6px; padding:10px 12px; border-radius:12px; border:1px solid rgba(231,238,247,.18); background:rgba(231,238,247,.06); white-space:pre-wrap; min-height:48px;">—</div>
+<div class="muted" id="qMetaLine" style="margin-top:8px;">—</div>
+    </div>
+
+    <div>
+      <div class="muted" style="margin-bottom:6px;">Number guess</div>
+      <input id="guess" inputmode="decimal" placeholder="e.g. 420" />
+      <div class="row" style="margin-top:10px;">
+        <button id="lockGuess" class="btnPrimary">Lock</button>
+        <button id="unlockGuess">Unlock</button>
+        <button id="revealAnswer">Reveal answer</button>
+      </div>
+      <div class="row" style="margin-top:10px;">
+        <button id="markCorrect" class="btnPrimary">Commit outcome</button>
+        <button id="markWrong">Wrong</button>
+        <button id="cashOut">Cash out</button>
+      </div>
+      <div class="muted" style="margin-top:12px;">Answer clock</div>
+      <div class="row" style="margin-top:10px;">
+        <button id="startClock" class="btnPrimary">Start 60s</button>
+        <button id="clearClock">Clear clock</button>
+      </div>
+      <div class="muted" style="margin-top:8px;">Time left: <code id="clockLeft">—</code></div>
+      <div class="muted" style="margin-top:12px;">Reveal / Evaluate</div>
+      <div class="row" style="margin-top:10px;">
+        <button id="startEval" class="btnPrimary">Start rung reveal</button>
+        <button id="nextRung">Next rung</button>
+        <button id="nextPenalty">Next under step (lose life)</button>
+        <button id="resetEval">Reset reveal</button>
+      </div>
+      <div class="muted" style="margin-top:8px;">Eval: <code id="evalLabel">—</code></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="row" style="justify-content:space-between;">
+      <div class="muted">Live state</div>
+      <div class="muted">Phase: <code id="phase"></code> · Ladder: <code id="ladder"></code></div>
+    </div>
+    <div class="row" style="justify-content:space-between; margin-top:10px;">
+      <div class="muted">Player dial: <code id="playerDial">-</code> · Locked: <code id="playerLocked">-</code></div>
+      <div class="row">
+        <button id="usePlayerDial">Use dial in Guess</button>
+        <button id="clearPlayerLock">Clear player lock</button>
+      </div>
+    </div>
+    <div class="muted" style="margin-top:10px;">Preview: <code id="previewLine">—</code></div>
+    <div class="ladder" id="ladderViz"></div>
+    <pre id="stateDump" style="white-space:pre-wrap; margin:10px 0 0; opacity:.92;"></pre>
+  </div>
+
+  <script type="module">
+import {
+  sb, getGameId, ensureRow, fetchState, patchState, subscribeState,
+  pickQuestion, fetchQuestionById,
+  ensurePlayerInputRow, fetchPlayerInput, subscribePlayerInput, buildOfficialLadder
+} from "./shared.js";
+    const gameId = getGameId();
+    document.getElementById("gameIdLabel").textContent = gameId;
+
+    const DEFAULT_STATE = {
+      phase: "intro",          // intro | question | locked | revealed | result | cashout | end
+      qIndex: 0,
+      qSet: "main",          // "main" | "quickfire"
+      questionId: null,       // UUID from questions table when loaded from DB
+      question: "",
+      guess: null,
+      lockedGuess: null,
+      lock_deadline_at: null,
+      answer: null,
+      answerShown: false,
+      result: null,            // "exact" | "under" | "over" | "wrong" | "no_lives" | null
+      lives: 25,
+      bank: 0,
+      eval: null,              // { mode, baseIndex, targetSteps, climbedSteps, diffTotal, diffShown }
+      ladderIndex: 0,
+      pendingIndex: null,
+      ladder: buildOfficialLadder(500),
+    };
+
+    let playerRow = null;
+    let privateAnswer = NaN;
+function answerStorageKey(){ return `lw_private_answer_${gameId}`; }
+
+function setPrivateAnswer(v){
+  privateAnswer = Number(v);
+  if (Number.isFinite(privateAnswer)) {
+    try { localStorage.setItem(answerStorageKey(), String(privateAnswer)); } catch(e) {}
+  }
+}
+function getPrivateAnswer(){
+  if (Number.isFinite(privateAnswer)) return privateAnswer;
+  try {
+    const raw = localStorage.getItem(answerStorageKey());
+    const v = Number(raw);
+    if (Number.isFinite(v)) { privateAnswer = v; return v; }
+  } catch(e) {}
+  return NaN;
+}
+function clearPrivateAnswer(){
+  privateAnswer = NaN;
+  try { localStorage.removeItem(answerStorageKey()); } catch(e) {}
+}
+let lastState = DEFAULT_STATE;
+
+function clearQuestionInfo(){
+  const box = document.getElementById("qInfoBox");
+  const meta = document.getElementById("qMetaLine");
+  if (box) box.textContent = "—";
+  if (meta) meta.textContent = "—";
+}
+
+function renderQuestionInfo(q){
+  // Expecting columns like: notes, difficulty, tags
+  const notes =
+    (q?.notes ?? q?.info ?? q?.host_notes ?? "").toString().trim();
+
+  const box = document.getElementById("qInfoBox");
+  if (box) box.textContent = notes || "—";
+
+  // tags might be text or an array (depending on how you stored it)
+  const tags = Array.isArray(q?.tags) ? q.tags.join(", ") : (q?.tags ?? "");
+  const difficulty = (q?.difficulty ?? "").toString().trim();
+
+  const bits = [];
+  if (difficulty) bits.push(`Difficulty: ${difficulty}`);
+  if (tags) bits.push(`Tags: ${tags}`);
+
+  const meta = document.getElementById("qMetaLine");
+  if (meta) meta.textContent = bits.length ? bits.join(" · ") : "—";
+}
+
+let _clockTick = null;
+let _lastDeadline = null;
+let _adminAutoLocked = false;
+
+function fmtTimeLeft(ms){
+  const s = Math.max(0, Math.ceil(ms / 1000));
+  const mm = String(Math.floor(s / 60)).padStart(2, "0");
+  const ss = String(s % 60).padStart(2, "0");
+  return `${mm}:${ss}`;
+}
+
+async function adminAutoLockIfNeeded(){
+  const dl = lastState?.lock_deadline_at ? new Date(lastState.lock_deadline_at).getTime() : NaN;
+  if (!Number.isFinite(dl)) return;
+
+  // reset one-shot guard when deadline changes
+  if (_lastDeadline !== dl) {
+    _lastDeadline = dl;
+    _adminAutoLocked = false;
+  }
+
+  if (_adminAutoLocked) return;
+  if ((lastState?.phase || "") !== "question") return;
+
+  if (Date.now() < dl) return;
+
+  // Fallback: lock whatever is currently dialled in (from player_input.current_guess)
+  if (!playerRow?.locked) {
+    const d = dialValue();
+    if (Number.isFinite(d)) {
+      _adminAutoLocked = true;
+      await sb.from("player_input").upsert(
+        { game_id: gameId, current_guess: d, locked_guess: d, locked: true },
+        { onConflict: "game_id" }
+      );
+      await patchState(gameId, { phase: "locked", guess: d, lockedGuess: d });
+    }
+  }
+}
+
+function startAdminClockTicker(){
+  if (_clockTick) return;
+  _clockTick = setInterval(async () => {
+    const el = document.getElementById("clockLeft");
+    const dl = lastState?.lock_deadline_at ? new Date(lastState.lock_deadline_at).getTime() : NaN;
+    if (!Number.isFinite(dl)) {
+      if (el) el.textContent = "—";
+      return;
+    }
+    const left = dl - Date.now();
+    if (el) el.textContent = fmtTimeLeft(left);
+    // also run fallback auto-lock
+    await adminAutoLockIfNeeded();
+  }, 200);
+}
+
+function dialValue() {
+  // IMPORTANT: Number(null) === 0, so treat null/undefined/"" as NaN.
+  const lockedRaw = playerRow?.locked ? playerRow?.locked_guess : null;
+  const lockedV = (lockedRaw === null || lockedRaw === undefined || lockedRaw === "") ? NaN : Number(lockedRaw);
+
+  const liveRaw = playerRow?.current_guess;
+  const liveV = (liveRaw === null || liveRaw === undefined || liveRaw === "") ? NaN : Number(liveRaw);
+
+  if (Number.isFinite(lockedV)) return lockedV;
+  if (Number.isFinite(liveV)) return liveV;
+  return null;
+}
+
+function getRevealedAnswer(cur){
+  // IMPORTANT: Number(null) === 0, so null/undefined/"" must mean “not revealed”.
+  if (cur == null) return NaN;
+  if (cur.answer === null || cur.answer === undefined || cur.answer === "") return NaN;
+  const v = Number(cur.answer);
+  return Number.isFinite(v) ? v : NaN;
+}
+
+function getGuessSteps(cur){
+  // Prefer game_state.lockedGuess, else player_input locked dial, else live dial, else game_state.guess.
+  const rawLocked = cur?.lockedGuess;
+  if (rawLocked !== null && rawLocked !== undefined && rawLocked !== "") {
+    const a = Number(rawLocked);
+    if (Number.isFinite(a)) return Math.max(0, Math.floor(a));
+  }
+
+  const b = dialValue(); // reads player_input (locked first, else current)
+  if (b !== null && b !== undefined && b !== "") {
+    const bn = Number(b);
+    if (Number.isFinite(bn)) return Math.max(0, Math.floor(bn));
+  }
+
+  const rawGuess = cur?.guess;
+  if (rawGuess !== null && rawGuess !== undefined && rawGuess !== "") {
+    const c = Number(rawGuess);
+    if (Number.isFinite(c)) return Math.max(0, Math.floor(c));
+  }
+
+  return NaN;
+}
+
+function clampStep(n, ladder){
+  const last = Math.max(0, (ladder || []).length - 1);
+  return Math.max(0, Math.min(last, Number(n || 0)));
+}
+
+function lastPassedDecadeMarker(oldIndex, newIndex) {
+  // highest multiple-of-10 marker strictly above oldIndex and <= newIndex, else null
+  const start = Number(oldIndex || 0);
+  const end = Number(newIndex || 0);
+  if (end <= start) return null;
+  const first = Math.ceil((start + 1) / 10) * 10;
+  if (first > end) return null;
+  return Math.floor(end / 10) * 10;
+}
+
+function bankIfExact(oldBase, newBase, ladder) {
+  const marker = lastPassedDecadeMarker(oldBase, newBase);
+  if (marker == null) return 0;
+  return Number(ladder?.[marker] || 0);
+}
+
+function renderLadder(s, ladder, cur, preview) {
+  const last = Math.max(0, ladder.length - 1);
+  cur = Math.max(0, Math.min(last, cur));
+  preview = Math.max(0, Math.min(last, preview));
+
+  // --- BEGIN LADDER RENDERING PATCH ---
+  // Extract eval state and mode
+  const ev = s && s.eval ? s.eval : null;
+  const evMode = ev && ev.mode ? ev.mode : null;
+  const evBase = ev && Number.isFinite(ev.baseIndex) ? Math.max(0, Math.floor(ev.baseIndex)) : 0;
+  const evClimbed = ev && Number.isFinite(ev.climbedSteps) ? Math.max(0, Math.floor(ev.climbedSteps)) : 0;
+  const markerStep = ev && Number.isFinite(ev.targetSteps) ? Math.max(0, Math.floor(ev.targetSteps)) : 0;
+  const lastStep = last;
+  const baseCommitted = cur;
+
+  // A) GOLD TOP: include check_exact in goldTop calculation
+  let goldTop = baseCommitted;
+  if (evMode === "climb") goldTop = Math.max(0, Math.min(lastStep, evBase + evClimbed));
+  else if (evMode === "check_exact" || evMode === "under_count" || evMode === "done") goldTop = markerStep;
+  else if (evMode === "over") goldTop = Math.max(0, Math.min(lastStep, evBase + evClimbed));
+
+  // B) RED PENALTY RUNGS: keep visible in under_count and after finished
+  const evDiffShown = (ev && Number.isFinite(ev.diffShown)) ? Math.max(0, Math.floor(ev.diffShown)) : 0;
+  const evDiffTotal = (ev && Number.isFinite(ev.diffTotal)) ? Math.max(0, Math.floor(ev.diffTotal)) : 0;
+  const showPenaltyFinished = (evMode === "done") && (s.result === "under" || s.result === "no_lives" || (s.phase === "end" && s.result === "no_lives"));
+  const penaltyTop = (evMode === "under_count" || showPenaltyFinished)
+    ? Math.max(0, Math.min(lastStep, markerStep + (evMode === "under_count" ? evDiffShown : (evDiffTotal || evDiffShown))))
+    : null;
+
+  // C) BLUE PREVIEW: keep during check_exact
+  const previewStep = (evMode === "climb" || evMode === "check_exact")
+    ? markerStep
+    : (evMode === "under_count" || evMode === "over")
+      ? goldTop
+      : Math.max(0, Math.min(lastStep, preview));
+
+  // --- END LADDER RENDERING PATCH ---
+
+  // window for long ladders
+  const win = 15;
+  let start = Math.max(0, cur - 4);
+  let end = Math.min(last, start + win - 1);
+  start = Math.max(0, end - win + 1);
+
+  let idxs = [];
+  for (let i = start; i <= end; i++) idxs.push(i);
+  if (previewStep < start || previewStep > end) idxs = Array.from(new Set([...idxs, previewStep])).sort((a,b)=>a-b);
+
+  document.getElementById("ladderViz").innerHTML = idxs.map(i => {
+    const v = ladder[i] ?? 0;
+    let cls = "step";
+    if (i === cur && i === previewStep) cls += " both";
+    else if (i === cur) cls += " current";
+    else if (i === previewStep) cls += " preview";
+    // Add gold and penalty styling if desired (not in original, but available via goldTop/penaltyTop)
+    // e.g., add classes or marks for goldTop/penaltyTop if you want
+    return `<div class="${cls}"><div class="left"><span class="badge">Step ${i}</span><strong>£${Number(v).toLocaleString()}</strong></div></div>`;
+  }).join("");
+}
+
+    function updateExtras() {
+      const d = dialValue();
+      document.getElementById("playerDial").textContent = (d === null) ? "-" : String(d);
+      document.getElementById("playerLocked").textContent = playerRow?.locked ? "yes" : "no";
+
+      const ladder = Array.isArray(lastState.ladder) ? lastState.ladder : [];
+      const last = Math.max(0, ladder.length - 1);
+      const cur = Math.max(0, Math.min(last, Number(lastState.ladderIndex || 0)));
+      const preview = (d === null) ? cur : Math.max(0, Math.min(last, cur + d));
+
+      const curMoney = ladder[cur] ?? 0;
+      const prevMoney = ladder[preview] ?? 0;
+
+      document.getElementById("previewLine").textContent =
+        (d === null)
+          ? `Current: £${Number(curMoney).toLocaleString()} (Step ${cur}/${last})`
+          : `Dial ${d} -> Preview: Step ${preview} (£${Number(prevMoney).toLocaleString()}) | Current: Step ${cur} (£${Number(curMoney).toLocaleString()})`;
+
+      renderLadder(lastState, ladder, cur, preview);
+    }
+
+    document.getElementById("startClock")?.addEventListener("click", async () => {
+  const deadline = new Date(Date.now() + 60_000).toISOString();
+
+  // set deadline in shared game state
+  await patchState(gameId, { lock_deadline_at: deadline });
+
+  // ensure players are unlocked so they can still dial/lock
+  await sb.from("player_input").upsert(
+    { game_id: gameId, locked: false, locked_guess: null },
+    { onConflict: "game_id" }
+  );
+});
+
+document.getElementById("clearClock")?.addEventListener("click", async () => {
+  await patchState(gameId, { lock_deadline_at: null });
+});
+
+    // extras buttons
+    document.getElementById("usePlayerDial")?.addEventListener("click", () => {
+      const d = dialValue();
+      if (d === null) return;
+      document.getElementById("guess").value = String(d);
+    });
+
+    document.getElementById("clearPlayerLock")?.addEventListener("click", async () => {
+  await sb.from("player_input").upsert(
+    { game_id: gameId, locked: false, locked_guess: null },
+    { onConflict: "game_id" }
+  );
+  // prevent stale lockedGuess being used for startEval
+  await patchState(gameId, { lockedGuess: null, guess: null, phase: "question" });
+});
+
+    function screenUrl(){
+      const u = new URL(location.href);
+      u.pathname = u.pathname.replace(/admin\.html?$/,"screen.html");
+      u.searchParams.set("game", gameId);
+      return u.toString();
+    }
+
+    document.getElementById("copyScreenUrl").onclick = async () => {
+      await navigator.clipboard.writeText(screenUrl());
+      alert("Screen URL copied.");
+    };
+
+    document.getElementById("resetGame").onclick = async () => {
+      await patchState(gameId, DEFAULT_STATE);
+      clearPrivateAnswer();
+    };
+
+    const qSetSel = document.getElementById("qSetSel");
+    const questionIdLabel = document.getElementById("questionIdLabel");
+
+    async function loadQuestionFromDb() {
+      const cur = (await fetchState(gameId)).state || {};
+      const set = (qSetSel?.value || cur.qSet || "main");
+      let q = null;
+
+      try {
+        q = await pickQuestion(gameId, set, cur.qIndex || 0);
+      } catch (e) {
+        console.error(e);
+        alert("DB pick failed. Did you create the pick_question RPC + tables?");
+        return;
+      }
+
+      if (!q || !q.id) {
+        alert("No available questions in this set (or all used). Add more questions or reset history.");
+        return;
+      }
+
+      // IMPORTANT: do NOT write the answer into game_state yet (prevents screen seeing it before reveal)
+      await patchState(gameId, {
+        phase: "question",
+        qSet: set,
+        questionId: q.id,
+        question: q.prompt,
+        result: null,
+        answer: null,
+        answerShown: false,
+        lockedGuess: null,
+        lock_deadline_at: null,
+      });
+      clearPrivateAnswer();
+
+      // reflect immediately in UI
+      document.getElementById("qText").value = q.prompt;
+      questionIdLabel.textContent = q.id;
+
+      // Host-only info from DB (notes/tags/difficulty etc)
+try{
+  const full = await fetchQuestionById(q.id);
+  renderQuestionInfo(full);
+}catch(e){
+  console.warn("Could not load question info:", e);
+  clearQuestionInfo();
+}
+    }
+
+    document.getElementById("loadDbQuestion").onclick = loadQuestionFromDb;
+
+    document.getElementById("clearQuestion").onclick = async () => {
+      questionIdLabel.textContent = "—";
+      document.getElementById("qText").value = "";
+      await patchState(gameId, { questionId: null, question: "", answer: null, answerShown: false, result: null, lock_deadline_at: null });
+      clearPrivateAnswer();
+      clearQuestionInfo();
+    };
+
+    document.getElementById("setQuestion").onclick = async () => {
+      const q = document.getElementById("qText").value.trim();
+      const set = (document.getElementById("qSetSel")?.value || "main");
+      await patchState(gameId, {
+        phase: "question",
+        qSet: set,
+        questionId: (lastState?.questionId ?? null),
+        question: q,
+        result: null,
+        answer: null,
+        answerShown: false,
+        lock_deadline_at: null,
+        lockedGuess: null
+      });
+      clearPrivateAnswer();
+      clearQuestionInfo();
+      document.getElementById("questionIdLabel").textContent = (lastState?.questionId ?? "—");
+    };
+
+    document.getElementById("nextQuestion").onclick = async () => {
+      const cur = (await fetchState(gameId)).state || {};
+      const pRaw = cur.pendingIndex;
+  const p = (pRaw === null || pRaw === undefined || pRaw === "") ? NaN : Number(pRaw);
+  const nextBase = Number.isFinite(p) ? p : (cur.ladderIndex || 0);
+      await patchState(gameId, {
+        qIndex: (cur.qIndex || 0) + 1,
+        phase: "question",
+        qSet: (document.getElementById("qSetSel")?.value || "main"),
+        questionId: null,
+        answerShown: false,
+        question: "",
+        guess: null,
+        lockedGuess: null,
+        answer: null,
+        result: null,
+        ladderIndex: nextBase,
+        lock_deadline_at: null,
+pendingIndex: null,
+      });
+      // reset the shared dial for the next question
+      await sb.from("player_input").upsert(
+        { game_id: gameId, current_guess: 0, locked: false, locked_guess: null },
+        { onConflict: "game_id" }
+      );
+      clearPrivateAnswer();
+      clearQuestionInfo();
+      document.getElementById("qText").value = "";
+      document.getElementById("guess").value = "";
+      document.getElementById("questionIdLabel").textContent = "—";
+    };
+
+    document.getElementById("lockGuess").onclick = async () => {
+      const v = Number(document.getElementById("guess").value);
+      if (!Number.isFinite(v)) return alert("Enter a number guess first.");
+      await patchState(gameId, { phase:"locked", guess: v, lockedGuess: v });
+    };
+
+    document.getElementById("unlockGuess").onclick = async () => {
+        await patchState(gameId, { phase:"question", lockedGuess: null, eval: null, result: null, pendingIndex: null });
+    };
+
+    document.getElementById("revealAnswer").onclick = async () => {
+      const cur = (await fetchState(gameId)).state || {};
+
+      if (cur.questionId) {
+        let q = null;
+        try {
+          q = await fetchQuestionById(cur.questionId);
+        } catch (e) {
+          console.error(e);
+          alert("Could not fetch answer for this questionId.");
+          return;
+        }
+        const raw = q?.answer;
+        if (raw === null || raw === undefined || raw === "") {
+          alert("This DB question has no answer. Set the numeric answer in the DB.");
+          return;
+        }
+        const v = Number(raw);
+        if (!Number.isFinite(v)) {
+          alert("This DB question answer is not numeric.");
+          return;
+        }
+        setPrivateAnswer(v);
+        await patchState(gameId, { phase: "revealed", answer: null, answerShown: false });
+        return;
+      }
+
+      const a = prompt("Correct answer (number):");
+      if (a === null) return;
+      const t = String(a).trim();
+      if (!t) return alert("No answer entered.");
+      const v = Number(t);
+      if (!Number.isFinite(v)) return alert("Answer must be numeric.");
+      setPrivateAnswer(v);
+      await patchState(gameId, { phase: "revealed", answer: null, answerShown: false });
+    };
+
+    document.getElementById("markCorrect").onclick = async () => {
+      const cur = (await fetchState(gameId)).state || {};
+      const ladder = Array.isArray(cur.ladder) ? cur.ladder : [];
+
+      const base = clampStep(cur.ladderIndex || 0, ladder);
+      const guess = getGuessSteps(cur);
+      const ans = getPrivateAnswer();
+      if (!Number.isFinite(ans)) return alert("Load the correct answer (admin-only) first.");
+      if (!Number.isFinite(guess)) return alert("No dial value found. Lock a guess on the player screen (or enter a guess in admin).");
+
+      // Over = immediate end
+      if (guess > ans) {
+        await patchState(gameId, { phase: "end", result: "over", answer: ans, answerShown: true });
+        return;
+      }
+
+      const newBase = clampStep(base + guess, ladder);
+
+      // Exact = bank the most recent decade marker passed during this move
+      if (guess === ans) {
+        const newBank = bankIfExact(base, newBase, ladder);
+await patchState(gameId, {
+  phase: "result",
+  result: "exact",
+  pendingIndex: newBase,
+  bank: (newBank > 0 ? newBank : Number(cur.bank || 0)),
+  answer: ans,
+  answerShown: true,
+});
+        return;
+      }
+
+      // Under = lose lives equal to difference, but still move base to locked position
+      const diff = Math.max(0, Math.floor(ans - guess));
+      const livesNow = Number.isFinite(cur.lives) ? Number(cur.lives) : 3;
+      const livesNew = livesNow - diff;
+
+      if (livesNew <= 0) {
+        await patchState(gameId, { phase: "end", result: "no_lives", lives: 0, pendingIndex: newBase, answer: ans, answerShown: true });
+        return;
+      }
+
+      await patchState(gameId, {
+        phase: "result",
+        result: "under",
+        lives: livesNew,
+        pendingIndex: newBase,
+        answer: ans,
+        answerShown: true,
+      });
+    };
+
+    document.getElementById("markWrong").onclick = async () => {
+      await patchState(gameId, { phase:"result", result:"wrong" });
+    };
+
+    document.getElementById("cashOut").onclick = async () => {
+      await patchState(gameId, { phase:"cashout" });    
+    };
+
+    document.getElementById("startEval").onclick = async () => {
+      const cur = (await fetchState(gameId)).state || {};
+      const ladder = Array.isArray(cur.ladder) ? cur.ladder : [];
+      const base = clampStep(cur.ladderIndex || 0, ladder);
+      const target = getGuessSteps(cur);
+      const ans = getPrivateAnswer();
+
+      if (!Number.isFinite(ans)) return alert("Load the correct answer (admin-only) first.");
+      if (!Number.isFinite(target)) return alert("No dial value found. Lock a guess on the player screen (or enter a guess in admin).");
+
+      await patchState(gameId, {
+        phase: "eval",
+        result: null,
+        eval: {
+          mode: "climb",
+          baseIndex: base,
+          targetSteps: Math.max(0, Math.floor(target)),
+          climbedSteps: 0,
+          diffTotal: null,
+          diffShown: 0,
+        }
+      });
+    };
+
+document.getElementById("nextRung").onclick = async () => {
+  const cur = (await fetchState(gameId)).state || {};
+  const ladder = Array.isArray(cur.ladder) ? cur.ladder : [];
+  const ev = cur.eval;
+  const ans = getPrivateAnswer();
+
+  if (!Number.isFinite(ans)) return alert("Load the correct answer (admin-only) first.");
+  if (!ev) return alert("Start rung reveal first.");
+  if (ev.mode === "under_count") return alert("Under-count active — use \"Next under step (lose life)\".");
+
+  const target = Math.max(0, Math.floor(ev.targetSteps || 0));
+
+  // Beat: we reached the dial. Next press resolves exact vs under.
+  if (ev.mode === "check_exact") {
+    // Exact: now reveal answer + bank (bank replaces, does not add) and queue the next base.
+    if (target === ans) {
+      const oldBase = clampStep(ev.baseIndex || 0, ladder);
+      const newBase = clampStep(oldBase + target, ladder);
+      const newBank = bankIfExact(oldBase, newBase, ladder);
+
+      await patchState(gameId, {
+        phase: "result",
+        result: "exact",
+        pendingIndex: newBase,
+        bank: (newBank > 0 ? newBank : Number(cur.bank || 0)),
+        answer: ans,
+        answerShown: true,
+        eval: { ...ev, mode: "done", climbedSteps: target, diffTotal: 0, diffShown: 0 }
+      });
+      return;
+    }
+
+    // Under: start counting the shortfall (still no answer reveal yet).
+    const diff = Math.max(0, Math.floor(ans - target));
+    await patchState(gameId, {
+      phase: "eval",
+      result: null,
+      eval: { ...ev, mode: "under_count", climbedSteps: target, diffTotal: diff, diffShown: 0 }
+    });
+    return;
+  }
+
+  if (ev.mode !== "climb") return alert(`Reveal mode is '${ev.mode}'. Reset reveal or start again.`);
+
+  const climbed = Math.max(0, Math.floor(ev.climbedSteps || 0)) + 1;
+
+  // If they go over even by 1, instant game over (as soon as we pass the true answer)
+  if (climbed > ans) {
+    await patchState(gameId, {
+      phase: "end",
+      result: "over",
+      eval: { ...ev, mode: "over", climbedSteps: climbed },
+      answer: ans,
+      answerShown: true,
+    });
+    return;
+  }
+
+  // If we have reached their dialled number, pause for the "is it exact?" beat
+  if (climbed >= target) {
+    await patchState(gameId, {
+      phase: "eval",
+      result: null,
+      eval: { ...ev, mode: "check_exact", climbedSteps: target, diffTotal: null, diffShown: 0 }
+    });
+    return;
+  }
+
+  // Still climbing
+  await patchState(gameId, {
+    phase: "eval",
+    result: null,
+    eval: { ...ev, climbedSteps: climbed }
+  });
+};
+
+    document.getElementById("nextPenalty").onclick = async () => {
+      const cur = (await fetchState(gameId)).state || {};
+      const ladder = Array.isArray(cur.ladder) ? cur.ladder : [];
+      const ev = cur.eval;
+      if (!ev || ev.mode !== "under_count") return alert("You are not in under-count mode.");
+
+      const diffTotal = Math.max(0, Math.floor(ev.diffTotal || 0));
+      const diffShown = Math.max(0, Math.floor(ev.diffShown || 0)) + 1;
+      const livesNow = Number.isFinite(cur.lives) ? Number(cur.lives) : 3;
+      const livesNew = livesNow - 1;
+
+      // If lives hit zero during under-count, game ends.
+      if (livesNew <= 0) {
+        await patchState(gameId, {
+          phase: "end",
+          result: "no_lives",
+          lives: 0,
+          answer: getPrivateAnswer(),
+answerShown: true,
+          eval: { ...ev, diffShown }
+        });
+        return;
+      }
+
+      // If finished counting the under-diff, commit the new base position.
+      if (diffShown >= diffTotal) {
+        const oldBase = clampStep(ev.baseIndex || 0, ladder);
+        const target = Math.max(0, Math.floor(ev.targetSteps || 0));
+        const newBase = clampStep(oldBase + target, ladder);
+        await patchState(gameId, {
+          phase: "result",
+          result: "under",
+          lives: livesNew,
+          pendingIndex: newBase,
+          answer: getPrivateAnswer(),
+answerShown: true,
+          eval: { ...ev, mode: "done", diffShown: diffTotal }
+        });
+        return;
+      }
+
+      // Otherwise continue counting
+      await patchState(gameId, {
+        phase: "eval",
+        lives: livesNew,
+        eval: { ...ev, diffShown }
+      });
+    };
+
+    document.getElementById("resetEval").onclick = async () => {
+      const cur = (await fetchState(gameId)).state || {};
+      const nextPhase = Number.isFinite(getPrivateAnswer())
+        ? "revealed"
+        : (Number.isFinite(cur.lockedGuess) ? "locked" : "question");
+      await patchState(gameId, { phase: nextPhase, eval: null, result: null });
+    };
+
+    function render(s){
+      if (document.getElementById("qSetSel") && (s.qSet || "")) document.getElementById("qSetSel").value = s.qSet;
+      if (document.getElementById("questionIdLabel")) document.getElementById("questionIdLabel").textContent = s.questionId || "—";
+
+      document.getElementById("phase").textContent = s.phase || "";
+      document.getElementById("ladder").textContent = `${s.ladderIndex || 0}/${(s.ladder||[]).length-1}`;
+      document.getElementById("stateDump").textContent = JSON.stringify(s, null, 2);
+      const ev = s.eval;
+      const evLabel = (!ev)
+        ? "—"
+        : `${ev.mode || "?"} | base:${ev.baseIndex ?? "?"} target:${ev.targetSteps ?? "?"} climbed:${ev.climbedSteps ?? "?"} diff:${ev.diffShown ?? 0}/${ev.diffTotal ?? "-"}`;
+      const el = document.getElementById("evalLabel");
+      const hidden = getPrivateAnswer();
+      const hiddenLabel = Number.isFinite(hidden) ? ` | hiddenAns:${hidden}` : " | hiddenAns:—";
+      if (el) el.textContent = evLabel + hiddenLabel;
+
+      // Button safety: only allow the appropriate step button for the current eval mode.
+      const btnNextRung = document.getElementById("nextRung");
+      const btnNextPenalty = document.getElementById("nextPenalty");
+      const mode = ev?.mode || null;
+      if (btnNextRung) btnNextRung.disabled = !(mode === "climb" || mode === "check_exact");
+      if (btnNextPenalty) btnNextPenalty.disabled = (mode !== "under_count");
+
+      // keep inputs roughly in sync
+      if ((s.question||"") && !document.getElementById("qText").value) document.getElementById("qText").value = s.question;
+      if (Number.isFinite(s.guess) && !document.getElementById("guess").value) document.getElementById("guess").value = String(s.guess);
+      lastState = s || {};
+      updateExtras();
+      startAdminClockTicker();
+    }
+
+    // Optional: Supabase Auth gate (recommended for admin writes)
+    // If you want, I’ll add a minimal login box + magic link flow here.
+
+    await ensureRow(gameId);
+await ensurePlayerInputRow(gameId);
+
+// initial loads
+playerRow = await fetchPlayerInput(gameId);
+const initial = (await fetchState(gameId)).state || DEFAULT_STATE;
+render(initial);
+
+// live subscriptions
+subscribeState(gameId, render);
+subscribePlayerInput(gameId, (row) => {
+  playerRow = row;
+  updateExtras();
+});
+  </script>
+</body>
+</html>

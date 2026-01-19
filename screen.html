@@ -1,0 +1,541 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Game Screen</title>
+  <style>
+    :root{ font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      --bg0:#07060b; --bg1:#0b0f14; --text:#e7eef7; --muted:rgba(231,238,247,.72);
+      --accent:#ff00ff; --accentSoft:rgba(255,0,255,.18);
+    }
+    body{
+      margin:0; height:100vh; color:var(--text);
+      background:
+        radial-gradient(1200px 700px at 20% -10%, rgba(255,0,255,0.14), transparent 60%),
+        linear-gradient(180deg,var(--bg0),var(--bg1));
+      display:flex; align-items:flex-start; justify-content:center;
+      padding:24px 0;
+      overflow:hidden;
+    }
+    .wrap{ width:min(1200px, 92vw); height:calc(100vh - 48px); display:flex; flex-direction:column; }
+    .main{ margin-top:18px; display:flex; gap:28px; align-items:stretch; flex:1; min-height:0; }
+    .left{ flex: 1 1 58%; min-width: 0; }
+    .right{ flex: 0 0 42%; display:flex; justify-content:flex-end; }
+    .left{ display:flex; flex-direction:column; min-height:0; }
+    .right{ min-height:0; }
+
+    /* Let long questions scroll inside their own box instead of pushing layout up */
+    .q{ max-height:34vh; overflow:auto; padding-right:6px; }
+    .q::-webkit-scrollbar{ width:8px; }
+    .q::-webkit-scrollbar-thumb{ background: rgba(231,238,247,.18); border-radius:999px; }
+
+    /* Keep ladder tower within viewport */
+    .tower{ display:flex; flex-direction:column; height:100%; min-height:0; }
+    .rungs{ flex:1; min-height:0; overflow:hidden; }
+
+    /* tighten spacing now that we have columns */
+    .q{ margin-top:0; }
+
+    /* responsive: stack on small widths */
+    @media (max-width: 900px){
+      .main{ flex-direction:column; }
+      .right{ justify-content:flex-start; }
+      .tower{ width:520px; max-width:92vw; }
+      .q{ font-size:30px; }
+      .big{ font-size:58px; }
+      .result{ font-size:22px; }
+      .left{ min-height:0; }
+      .right{ min-height:0; }
+    }
+    .top{ display:flex; justify-content:space-between; align-items:baseline; gap:12px; }
+    .brand{ font-weight:900; letter-spacing:.08em; text-transform:uppercase; opacity:.9; }
+    .pill{ padding:8px 12px; border-radius:999px; background:rgba(231,238,247,.08); border:1px solid rgba(231,238,247,.14); }
+    .q{ margin-top:18px; font-size:40px; line-height:1.15; }
+    .big{ margin-top:18px; font-size:78px; font-weight:900; letter-spacing:-.02em; }
+    .muted{ opacity:.75; }
+    .result{ margin-top:10px; font-size:26px; }
+    .glow{ text-shadow: 0 0 24px var(--accentSoft); }
+    /* Show-like tower ladder */
+    .tower{ margin-top:0; width:520px; }
+    .rungs{ position:relative; display:flex; flex-direction:column; gap:4px; padding:10px 18px 6px; }
+
+    /* rails */
+    .rungs::before, .rungs::after{
+      content:"";
+      position:absolute;
+      top:6px; bottom:6px;
+      width:10px;
+      border-radius:999px;
+      background: linear-gradient(180deg, rgba(255,255,255,.18), rgba(255,255,255,.06));
+      box-shadow: 0 0 18px rgba(255,0,255,.10);
+    }
+    .rungs::before{ left:4px; }
+    .rungs::after{ right:4px; }
+
+    /* Big marker rung (every 10 steps) — default is dark */
+.rung{
+  position:relative;
+  padding:8px 12px;
+  font-size:16px;
+  border-radius:14px;
+  text-align:center;
+  font-weight:900;
+  letter-spacing:.01em;
+  color: rgba(231,238,247,.92);
+  border:1px solid rgba(231,238,247,.18);
+  background: linear-gradient(180deg, rgba(22,36,56,.88), rgba(12,20,34,.92));
+  box-shadow:
+    0 10px 30px rgba(0,0,0,.30),
+    inset 0 1px 0 rgba(255,255,255,.08);
+}
+
+@keyframes notExactFlash {
+  0%,100% { filter:none; }
+  50% { filter:hue-rotate(-80deg) saturate(2) brightness(1.05); }
+}
+
+.tower.flash-not-exact .miniRung.reached,
+.tower.flash-not-exact .rung.reached{
+  animation: notExactFlash 650ms ease-in-out;
+}
+
+/* Big rung when dial preview passes it */
+.rung.dialed{
+  color:#061221;
+  border-color: rgba(231,238,247,.22);
+  background: linear-gradient(180deg, rgba(132,205,255,.90), rgba(55,145,210,.85));
+  box-shadow:
+    0 10px 30px rgba(0,0,0,.30),
+    0 0 18px rgba(132,205,255,.12),
+    inset 0 1px 0 rgba(255,255,255,.26);
+}
+
+/* Big rung when actually reached (gold) */
+.rung.reached{
+  color:#120d07;
+  border-color: rgba(255,255,255,.22);
+  background: linear-gradient(180deg, rgba(255,222,140,.95), rgba(199,133,52,.92));
+  box-shadow:
+    0 10px 30px rgba(0,0,0,.30),
+    inset 0 1px 0 rgba(255,255,255,.30);
+}
+
+    /* Small step rungs (every step) */
+    .miniRung{
+      position:relative;
+      height:7px;
+      border-radius:999px;
+      margin:0 24px; /* inset inside rails */
+      background: rgba(22, 36, 56, .85); /* dark blue default */
+      border:1px solid rgba(231,238,247,.10);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.08);
+    }
+    .miniRung.reached{
+      background: linear-gradient(180deg, rgba(255,222,140,.90), rgba(199,133,52,.86));
+      border:1px solid rgba(255,255,255,.18);
+    }
+    .miniRung.preview{
+      background: linear-gradient(180deg, rgba(132, 205, 255, .90), rgba(55, 145, 210, .85));
+      border:1px solid rgba(231,238,247,.18);
+      box-shadow: 0 0 14px rgba(132,205,255,.18);
+    }
+
+    .miniRung.penalty{
+      background: linear-gradient(180deg, rgba(255, 98, 98, .92), rgba(170, 24, 24, .88));
+      border:1px solid rgba(255,255,255,.16);
+      box-shadow: 0 0 16px rgba(255, 98, 98, .18);
+    }
+
+    /* Tower turns red on overshoot */
+    .tower.tower--over .rungs::before,
+    .tower.tower--over .rungs::after{
+      background: linear-gradient(180deg, rgba(255, 98, 98, .28), rgba(170, 24, 24, .18));
+      box-shadow: 0 0 22px rgba(255, 98, 98, .18);
+    }
+    .tower.tower--over .rung{
+      background: linear-gradient(180deg, rgba(255, 170, 170, .92), rgba(170, 24, 24, .82));
+      color:#1a0b0b;
+      border-color: rgba(255,255,255,.18);
+    }
+    .tower.tower--over .stepPanel{
+      border-color: rgba(255, 98, 98, .28);
+      box-shadow: 0 12px 30px rgba(0,0,0,.35), 0 0 24px rgba(255, 98, 98, .12);
+    }
+    .tower.tower--over .stepPanel .stepNum{ color: rgba(255, 98, 98, .95); }
+    .miniRung.current{
+      box-shadow: 0 0 0 2px rgba(255,0,255,.14), inset 0 1px 0 rgba(255,255,255,.10);
+    }
+
+    /* Marker money rungs sit visually above mini rungs */
+    .rung{ z-index: 2; }
+    .miniRung{ z-index: 1; }
+
+    .rung .meta{
+      position:absolute;
+      left:14px;
+      top:50%;
+      transform:translateY(-50%);
+      font-size:11px;
+      font-weight:800;
+      color: rgba(0,0,0,.55);
+      letter-spacing:.04em;
+      text-transform:uppercase;
+    }
+
+    .rung.current{
+      outline: 3px solid rgba(255,0,255,.60);
+      box-shadow:
+        0 0 0 2px rgba(255,0,255,.18),
+        0 10px 30px rgba(0,0,0,.30),
+        0 0 22px rgba(255,0,255,.22),
+        inset 0 1px 0 rgba(255,255,255,.30);
+    }
+
+    .rung.preview{
+      outline: 3px solid rgba(255,0,255,.28);
+      box-shadow:
+        0 10px 30px rgba(0,0,0,.30),
+        0 0 18px rgba(255,0,255,.14),
+        inset 0 1px 0 rgba(255,255,255,.30);
+    }
+
+    .rung.both{
+      outline: 3px solid rgba(255,0,255,.75);
+      box-shadow:
+        0 0 0 2px rgba(255,0,255,.22),
+        0 10px 30px rgba(0,0,0,.30),
+        0 0 26px rgba(255,0,255,.26),
+        inset 0 1px 0 rgba(255,255,255,.30);
+    }
+
+    .stepPanel{
+      margin-top:12px;
+      width:100%;
+      border-radius:16px;
+      padding:12px 16px;
+      display:flex;
+      justify-content:center;
+      align-items:baseline;
+      gap:0;
+      background: rgba(0,0,0,.45);
+      border:1px solid rgba(231,238,247,.18);
+      box-shadow: 0 12px 30px rgba(0,0,0,.35);
+    }
+    .stepPanel .stepNum{ font-size:40px; font-weight:900; color: #ffd36a; letter-spacing:-.02em; }
+
+    .statsRow{ margin-top:10px; display:flex; gap:10px; flex-wrap:wrap; }
+    .statPill{ padding:8px 12px; border-radius:999px; background:rgba(231,238,247,.08); border:1px solid rgba(231,238,247,.14); }
+    .statPill b{ font-weight:900; }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+  <div class="wrap">
+    <div class="top">
+      <div class="brand">Limitless-ish</div>
+      <div class="pill muted">Game: <span id="gameIdLabel"></span> · <span id="phase"></span></div>
+    </div>
+
+    <div class="main">
+      <div class="left">
+        <div class="q" id="question">Waiting for admin…</div>
+        <div class="statsRow">
+          <div class="statPill muted">Lives: <b id="livesVal">—</b></div>
+          <div class="statPill muted">Bank: <b id="bankVal">—</b></div>
+        </div>
+        <div class="big glow" id="guessLine">—</div>
+        <div class="result" id="revealLine"></div>
+        <div class="result muted" id="ladderLine"></div>
+        <div class="result muted" id="previewLine"></div>
+      </div>
+
+      <div class="right">
+        <div class="tower" id="ladderTower">
+          <div class="rungs" id="ladderViz"></div>
+          <div class="stepPanel" aria-label="Dial value">
+            <span class="stepNum" id="stepPanelNum">0</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import {
+      getGameId, ensureRow, fetchState, subscribeState,
+      ensurePlayerInputRow, fetchPlayerInput, subscribePlayerInput
+    } from "./shared.js";
+
+    const gameId = getGameId();
+    document.getElementById("gameIdLabel").textContent = gameId;
+
+    let lastState = {};
+    let playerRow = null;
+
+    function dialValue() {
+      // IMPORTANT: Number(null) === 0, so treat null/undefined/"" as NaN.
+      const lockedRaw = playerRow?.locked ? playerRow?.locked_guess : null;
+      const lockedV = (lockedRaw === null || lockedRaw === undefined || lockedRaw === "") ? NaN : Number(lockedRaw);
+
+      const liveRaw = playerRow?.current_guess;
+      const liveV = (liveRaw === null || liveRaw === undefined || liveRaw === "") ? NaN : Number(liveRaw);
+
+      if (Number.isFinite(lockedV)) return lockedV;
+      if (Number.isFinite(liveV)) return liveV;
+      return null;
+    }
+
+    function renderLadder(s, ladder, cur, preview) {
+      const el = document.getElementById("ladderViz");
+      if (!el) return;
+
+      const towerEl = document.getElementById("ladderTower");
+
+      const lastStep = Math.max(0, ladder.length - 1);
+      const baseCommitted = Math.max(0, Math.min(lastStep, Number(s.ladderIndex || 0)));
+
+      const ev = s.eval || null;
+      const evMode = ev?.mode;
+      const evBase = (ev && Number.isFinite(ev.baseIndex)) ? Math.max(0, Math.min(lastStep, Number(ev.baseIndex))) : baseCommitted;
+      const evTarget = (ev && Number.isFinite(ev.targetSteps)) ? Math.max(0, Math.floor(ev.targetSteps)) : 0;
+      const evClimbed = (ev && Number.isFinite(ev.climbedSteps)) ? Math.max(0, Math.floor(ev.climbedSteps)) : 0;
+      const evDiffShown = (ev && Number.isFinite(ev.diffShown)) ? Math.max(0, Math.floor(ev.diffShown)) : 0;
+      const evDiffTotal = (ev && Number.isFinite(ev.diffTotal)) ? Math.max(0, Math.floor(ev.diffTotal)) : 0;
+
+      const markerStep = Math.max(0, Math.min(lastStep, evBase + evTarget));
+
+      // What should be gold right now?
+      // - normal: committed base only
+      // - climb: gold up to base + climbedSteps
+      // - under_count/done: gold up to their marker (dialled position)
+      let goldTop = baseCommitted;
+      if (evMode === "climb") goldTop = Math.max(0, Math.min(lastStep, evBase + evClimbed));
+      else if (evMode === "check_exact" || evMode === "under_count" || evMode === "done") goldTop = markerStep;
+      else if (evMode === "over") goldTop = Math.max(0, Math.min(lastStep, evBase + evClimbed));
+
+      // Under penalty rungs (above their marker) as we count the shortfall
+      const showPenaltyFinished = (evMode === "done") && (s.result === "under" || s.result === "no_lives" || (s.phase === "end" && s.result === "no_lives"));
+      const penaltyTop = (evMode === "under_count" || showPenaltyFinished)
+        ? Math.max(0, Math.min(lastStep, markerStep + (evMode === "under_count" ? evDiffShown : (evDiffTotal || evDiffShown))))
+        : null;
+
+      // Preview should remain visible up to the dialled target during climb
+      // so players can see the "might go to" distance while gold climbs.
+      const previewStep = (evMode === "climb" || evMode === "check_exact")
+        ? markerStep
+        : (evMode === "under_count" || evMode === "over")
+          ? goldTop
+          : Math.max(0, Math.min(lastStep, preview));
+
+      // Tower red when overshoot has happened
+      const isOver = (s.result === "over") || (evMode === "over") || (s.phase === "end" && s.result === "over");
+      if (towerEl) towerEl.classList.toggle("tower--over", !!isOver);
+
+      // Window: always 60 steps.
+      // Anchor so the committed base step sits at the bottom (show-like),
+      // but ensure we can still see the current reveal/preview above.
+      const win = 60;
+
+      // baseline bottom is the committed base step
+      let bottom = Math.max(0, Math.min(lastStep, baseCommitted));
+      let top = Math.min(lastStep, bottom + (win - 1));
+
+      // if reveal/preview exceeds the current top, scroll the window upward to fit it
+      const neededTop = Math.max(goldTop, previewStep);
+      if (neededTop > top) {
+        top = Math.min(lastStep, neededTop);
+        bottom = Math.max(0, top - (win - 1));
+      }
+
+      // if we're at the very top, keep the full window
+      if (top === lastStep) bottom = Math.max(0, lastStep - (win - 1));
+
+      const isMarker = (n) => (n % 10 === 0);
+
+      let html = "";
+      for (let step = top; step >= bottom; step--) {
+        let cls = "miniRung";
+
+        // penalty rungs (only during under-count)
+        if (penaltyTop !== null && step > markerStep && step <= penaltyTop) {
+          cls += " penalty";
+        } else if (step <= goldTop) {
+          cls += " reached";
+        } else if (step <= previewStep) {
+          cls += " preview";
+        }
+
+        if (step === goldTop) cls += " current";
+
+        html += `<div class="${cls}" aria-label="Step ${step}"></div>`;
+
+        if (isMarker(step)) {
+          const v = ladder[step] ?? 0;
+          let mcls = "rung";
+
+// NEW: big rung fill colour follows the same rules as mini rungs
+if (step <= goldTop) mcls += " reached";
+else if (step <= previewStep) mcls += " dialed";
+
+const curMarker = Math.floor(goldTop / 10) * 10;
+const prevMarker = Math.floor(previewStep / 10) * 10;
+if (step === curMarker && step === prevMarker) mcls += " both";
+else if (step === curMarker) mcls += " current";
+else if (step === prevMarker) mcls += " preview";
+
+          html += `
+  <div class="${mcls}">
+    £${Number(v).toLocaleString()}
+  </div>
+`;
+        }
+      }
+
+      el.innerHTML = html;
+    }
+
+    function render(s){
+      lastState = s || {};
+
+      // --- Not-exact lighting cue: when we leave check_exact and start counting under ---
+window.__lastEvMode = window.__lastEvMode || "";
+const nextMode = s?.eval?.mode || "";
+
+if (window.__lastEvMode === "check_exact" && nextMode === "under_count") {
+  const towerEl = document.getElementById("ladderTower");
+  if (towerEl) {
+    towerEl.classList.remove("flash-not-exact"); // restart if repeated
+    void towerEl.offsetWidth;                    // force reflow
+    towerEl.classList.add("flash-not-exact");
+    setTimeout(() => towerEl.classList.remove("flash-not-exact"), 700);
+  }
+}
+
+window.__lastEvMode = nextMode;
+
+      document.getElementById("phase").textContent = s.phase || "";
+      document.getElementById("question").textContent = s.question || "Waiting for admin…";
+
+      // Fill Lives and Bank
+      const livesEl = document.getElementById("livesVal");
+      if (livesEl) livesEl.textContent = String(Number.isFinite(s.lives) ? s.lives : 3);
+
+      const bankEl = document.getElementById("bankVal");
+      const bank = Number.isFinite(s.bank) ? s.bank : 0;
+      if (bankEl) bankEl.textContent = `£${Number(bank).toLocaleString()}`;
+
+      const li = Number(s.ladderIndex || 0);
+      const ladder = Array.isArray(s.ladder) ? s.ladder : [];
+      const last = Math.max(0, ladder.length - 1);
+      const cur = Math.max(0, Math.min(last, li));
+      const money = ladder[cur] ?? 0;
+
+      const showGuess =
+        (s.lockedGuess ??
+         (playerRow?.locked ? playerRow?.locked_guess : playerRow?.current_guess) ??
+         s.guess);
+
+      document.getElementById("guessLine").textContent =
+        (showGuess === null || showGuess === undefined) ? "—" : String(showGuess);
+
+      const reveal = [];
+      if (s.answerShown && Number.isFinite(s.answer)) reveal.push(`Answer: ${s.answer}`);
+
+      // For diffs, prefer the target steps from eval, then player input (locked/live), then state.
+      const guessStepsForDiff = (() => {
+        const t = s.eval?.targetSteps;
+        if (t !== null && t !== undefined && t !== "") {
+          const tn = Number(t);
+          if (Number.isFinite(tn)) return tn;
+        }
+
+        const pr = playerRow;
+        const rawP = pr?.locked ? pr?.locked_guess : pr?.current_guess;
+        if (rawP !== null && rawP !== undefined && rawP !== "") {
+          const pn = Number(rawP);
+          if (Number.isFinite(pn)) return pn;
+        }
+
+        const rawLG = s.lockedGuess;
+        if (rawLG !== null && rawLG !== undefined && rawLG !== "") {
+          const lgn = Number(rawLG);
+          if (Number.isFinite(lgn)) return lgn;
+        }
+
+        const rawG = s.guess;
+        if (rawG !== null && rawG !== undefined && rawG !== "") {
+          const gn = Number(rawG);
+          if (Number.isFinite(gn)) return gn;
+        }
+
+        return NaN;
+      })();
+
+      const g = Number.isFinite(guessStepsForDiff) ? Math.max(0, Math.floor(guessStepsForDiff)) : NaN;
+      const a = Number(s.answer);
+      const hasGA = Number.isFinite(g) && Number.isFinite(a);
+
+      if (s.phase === "eval") {
+        const m = s.eval?.mode || "";
+        if (m === "climb") reveal.push("Revealing…");
+        if (m === "under_count") reveal.push("Counting under…");
+        if (m === "over") reveal.push("OVER!");
+      }
+
+      if (s.result === "exact") reveal.push("🎯 EXACT");
+      if (s.result === "under" && hasGA) reveal.push(`⬇️ Under by ${Math.max(0, Math.floor(a - g))}`);
+      if (s.result === "over") reveal.push("⬆️ OVER (Game Over)");
+      if (s.result === "no_lives") reveal.push("💀 OUT OF LIVES");
+      if (s.result === "wrong") reveal.push("❌ WRONG");
+      if (s.phase === "cashout") reveal.push("💸 CASH OUT");
+
+      document.getElementById("revealLine").textContent = reveal.join(" · ");
+
+      const pendingRaw = s.pendingIndex;
+      const pending = (pendingRaw === null || pendingRaw === undefined || pendingRaw === "") ? NaN : Number(pendingRaw);
+      if (Number.isFinite(pending)) {
+        const p = Math.max(0, Math.min(last, Math.floor(pending)));
+        const pm = ladder[p] ?? 0;
+        document.getElementById("ladderLine").textContent =
+          `Current: £${Number(money).toLocaleString()} (Step ${cur}/${last})  →  Next: £${Number(pm).toLocaleString()} (Step ${p})`;
+      } else {
+        document.getElementById("ladderLine").textContent =
+          `Current: £${Number(money).toLocaleString()} (Step ${cur}/${last})`;
+      }
+      // Bottom gold number shows the live dial value (locked/live), not the current step.
+      const dForPanel = dialValue();
+      const stepNumEl = document.getElementById("stepPanelNum");
+      if (stepNumEl) stepNumEl.textContent = String(dForPanel ?? 0);
+
+      // preview (dramatic 'might go to' if correct)
+      const d = dialValue();
+      const preview = (d === null) ? cur : Math.max(0, Math.min(last, cur + d));
+      const prevMoney = ladder[preview] ?? 0;
+
+      const previewEl = document.getElementById("previewLine");
+      if (previewEl) {
+        previewEl.textContent = (d === null)
+          ? "Dialling: —"
+          : `Dialling: ${d}  →  If correct: Step ${preview} (£${Number(prevMoney).toLocaleString()})`;
+      }
+
+      renderLadder(s, ladder, cur, preview);
+    }
+
+    await ensureRow(gameId);
+    await ensurePlayerInputRow(gameId);
+
+    // initial
+    playerRow = await fetchPlayerInput(gameId);
+    render((await fetchState(gameId)).state || {});
+
+    // live
+    subscribeState(gameId, render);
+    subscribePlayerInput(gameId, (row) => {
+      playerRow = row;
+      render(lastState);
+    });
+  </script>
+</body>
+</html>
