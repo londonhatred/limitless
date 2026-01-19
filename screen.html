@@ -90,14 +90,37 @@
     inset 0 1px 0 rgba(255,255,255,.08);
 }
 
-@keyframes notExactFlash {
-  0%,100% { filter:none; }
-  50% { filter:hue-rotate(-80deg) saturate(2) brightness(1.05); }
+/* --- Not-exact lighting cue: classy TV red wipe + rail pulse --- */
+@keyframes notExactRailPulse {
+  0%, 100% { box-shadow: 0 0 18px rgba(255,0,255,.10); }
+  35% { box-shadow: 0 0 26px rgba(255, 70, 70, .22); }
+  55% { box-shadow: 0 0 20px rgba(255, 70, 70, .14); }
 }
 
+@keyframes notExactWipe {
+  0%, 100% {
+    background: linear-gradient(180deg, rgba(255,222,140,.90), rgba(199,133,52,.86));
+    border-color: rgba(255,255,255,.18);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.10);
+  }
+  45% {
+    background: linear-gradient(180deg, rgba(255, 98, 98, .92), rgba(170, 24, 24, .88));
+    border-color: rgba(255,255,255,.16);
+    box-shadow: 0 0 14px rgba(255, 98, 98, .16), inset 0 1px 0 rgba(255,255,255,.08);
+  }
+}
+
+/* rail pulse */
+.tower.flash-not-exact .rungs::before,
+.tower.flash-not-exact .rungs::after{
+  animation: notExactRailPulse 700ms ease-in-out;
+}
+
+/* apply wipe to reached rungs; delay is set inline per element */
 .tower.flash-not-exact .miniRung.reached,
 .tower.flash-not-exact .rung.reached{
-  animation: notExactFlash 650ms ease-in-out;
+  animation: notExactWipe 700ms ease-in-out;
+  animation-delay: var(--fxDelay, 0ms);
 }
 
 /* Big rung when dial preview passes it */
@@ -368,7 +391,13 @@
 
         if (step === goldTop) cls += " current";
 
-        html += `<div class="${cls}" aria-label="Step ${step}"></div>`;
+        // FX: when not-exact is flashing, stagger reached rungs from bottom (delay 0) to top
+        let style = "";
+        if (towerEl && towerEl.classList.contains("flash-not-exact") && cls.includes("reached")) {
+          const posFromBottom = step - bottom; // 0 at bottom
+          style = ` style="--fxDelay:${posFromBottom * 8}ms"`;
+        }
+        html += `<div class="${cls}"${style} aria-label="Step ${step}"></div>`;
 
         if (isMarker(step)) {
           const v = ladder[step] ?? 0;
@@ -384,8 +413,13 @@ if (step === curMarker && step === prevMarker) mcls += " both";
 else if (step === curMarker) mcls += " current";
 else if (step === prevMarker) mcls += " preview";
 
+          let mstyle = "";
+          if (towerEl && towerEl.classList.contains("flash-not-exact") && mcls.includes("reached")) {
+            const posFromBottom = step - bottom;
+            mstyle = ` style="--fxDelay:${posFromBottom * 8}ms"`;
+          }
           html += `
-  <div class="${mcls}">
+  <div class="${mcls}"${mstyle}>
     £${Number(v).toLocaleString()}
   </div>
 `;
@@ -408,7 +442,7 @@ if (window.__lastEvMode === "check_exact" && nextMode === "under_count") {
     towerEl.classList.remove("flash-not-exact"); // restart if repeated
     void towerEl.offsetWidth;                    // force reflow
     towerEl.classList.add("flash-not-exact");
-    setTimeout(() => towerEl.classList.remove("flash-not-exact"), 700);
+    setTimeout(() => towerEl.classList.remove("flash-not-exact"), 1050);
   }
 }
 

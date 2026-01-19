@@ -636,14 +636,15 @@ pendingIndex: null,
       // Exact = bank the most recent decade marker passed during this move
       if (guess === ans) {
         const newBank = bankIfExact(base, newBase, ladder);
-await patchState(gameId, {
-  phase: "result",
-  result: "exact",
-  pendingIndex: newBase,
-  bank: (newBank > 0 ? newBank : Number(cur.bank || 0)),
-  answer: ans,
-  answerShown: true,
-});
+        await patchState(gameId, {
+          phase: "result",
+          result: "exact",
+          pendingIndex: newBase,
+          bank: (newBank > 0 ? newBank : Number(cur.bank || 0)),
+          lives: (Number.isFinite(cur.lives) ? Number(cur.lives) : 0) + 5,
+          answer: ans,
+          answerShown: true,
+        });
         return;
       }
 
@@ -724,6 +725,7 @@ document.getElementById("nextRung").onclick = async () => {
         result: "exact",
         pendingIndex: newBase,
         bank: (newBank > 0 ? newBank : Number(cur.bank || 0)),
+        lives: (Number.isFinite(cur.lives) ? Number(cur.lives) : 0) + 5,
         answer: ans,
         answerShown: true,
         eval: { ...ev, mode: "done", climbedSteps: target, diffTotal: 0, diffShown: 0 }
